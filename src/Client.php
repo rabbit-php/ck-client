@@ -219,53 +219,31 @@ class Client
     }
 
 
-    private function readData(int $pCode): int|null
+    private function readData(int $pCode): null|int
     {
-        if (count($this->fields) === 0) {
-            $this->readHeader();
-        }
-        list($code, $row_count, $col_count) = $this->readHeader();
-        if ($row_count === 0) {
-            return $code;
-        }
-
-        if ($pCode === Protocol::SERVER_DATA) {
-            foreach ($this->fields as $t) {
-                $f   = $this->read->string();
-                $t   = $this->read->string();
-                $col = $this->types->unpack($t, $row_count);
-                $i   = 0;
-                foreach ($col as $el) {
-                    $this->_row_data[$i + $this->_total_row][$f] = $el;
-                    $i++;
-                }
+        $this->read->number();
+        [$row_count, $col_count] = $this->readHeader();
+        for ($i = 0; $i < $col_count; $i++) {
+            $f   = $this->read->string();
+            $t   = $this->read->string();
+            if ($pCode === Protocol::SERVER_DATA) {
+                $this->fields[$f] = $t;
             }
-            $this->_total_row += $row_count;
-        } else {
-            for ($i = 0; $i < $col_count; $i++) {
-                $f = $this->read->string();
-                $t = $this->read->string();
+            if ($row_count > 0) {
                 $col = $this->types->unpack($t, $row_count);
-                if (($this->fields[$f] ?? false) && count($this->_row_data) === 0) {
-                    $j = 0;
-                    foreach ($col as $el) {
+                if ($pCode === Protocol::SERVER_DATA) {
+                    foreach ($col as $j => $el) {
                         $this->_row_data[$j + $this->_total_row][$f] = $el;
-                        $j++;
                     }
-                    $this->_total_row += $row_count;
                 }
             }
         }
+        $this->_total_row = count($this->_row_data);
         return null;
     }
 
     private function readHeader(): array
     {
-        $n = $this->read->number();
-        if ($n > 1) {
-            return [$n, 0, 0];
-        }
-
         $info = [];
         if ($this->gtV(self::DBMS_MIN_V_BLOCK_INFO)) {
             $info = [
@@ -279,12 +257,7 @@ class Client
         $info['col_count']    = $this->read->number();
         $info['row_count']    = $this->read->number();
 
-        if (count($this->fields) === 0) {
-            for ($i = 0; $i < $info['col_count']; $i++) {
-                $this->fields[$this->read->string()] = $this->read->string();
-            }
-        }
-        return [0, $info['row_count'], $info['col_count']];
+        return [$info['row_count'], $info['col_count']];
     }
 
     private function setServerInfo(): void
@@ -382,9 +355,10 @@ class Client
         while (true) {
             $code = $this->read->number();
             if ($code == Protocol::SERVER_DATA) {
-                $this->readHeader();
+                $this->readData($code);
                 break;
             } else if ($code == Protocol::SERVER_PROGRESS) {
+                $this->readData($code);
                 continue;
             } else if ($code == Protocol::SERVER_EXCEPTION) {
                 $this->readErr();
