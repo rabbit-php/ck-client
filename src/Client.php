@@ -12,21 +12,20 @@ class Client
     /**
      * @var Write
      */
-    private $write;
+    private Write $write;
 
     /**
      * @var Read
      */
-    private $read;
+    private Read $read;
 
     /**
      * @var Types
      */
-    private $types;
+    private Types $types;
 
     const NAME          = 'PHP-ONE-CLIENT';
-    const VERSION       = 54213;
-    const VERSION_MAJOR = 1;
+    const VERSION_MAJOR = 2;
     const VERSION_MINOR = 1;
 
     const DBMS_MIN_V_TEMPORARY_TABLES         = 50264;
@@ -36,10 +35,24 @@ class Client
     const DBMS_MIN_V_SERVER_TIMEZONE          = 54058;
     const DBMS_MIN_V_QUOTA_KEY_IN_CLIENT_INFO = 54060;
 
-    private $conf = [];
+    const DBMS_MIN_REVISION_WITH_TIME_ZONE_PARAMETER_IN_DATETIME_DATA_TYPE = 54337;
+    const DBMS_MIN_REVISION_WITH_SERVER_DISPLAY_NAME      = 54372;
+    const DBMS_MIN_REVISION_WITH_VERSION_PATCH            = 54401;
+    const DBMS_MIN_REVISION_WITH_LOW_CARDINALITY_TYPE     = 54405;
+    const DBMS_MIN_REVISION_WITH_COLUMN_DEFAULTS_METADATA = 54410;
+    const DBMS_MIN_REVISION_WITH_CLIENT_WRITE_INFO        = 54420;
+    const DBMS_MIN_REVISION_WITH_SETTINGS_SERIALIZED_AS_STRINGS = 54429;
+    const DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET       = 54441;
+    const DBMS_MIN_REVISION_WITH_OPENTELEMETRY            = 54442;
+    const DBMS_MIN_REVISION_WITH_DISTRIBUTED_DEPTH        = 54448;
+    const DBMS_MIN_REVISION_WITH_INITIAL_QUERY_START_TIME = 54449;
+    const DBMS_MIN_REVISION_WITH_INCREMENTAL_PROFILE_EVENTS = 54451;
+    const VERSION = self::DBMS_MIN_REVISION_WITH_INCREMENTAL_PROFILE_EVENTS;
+
+    private array $conf = [];
 
 
-    public function __construct($dsn = 'tcp://127.0.0.1:9000', $username = 'default', $password = '', $database = 'default', $options = [])
+    public function __construct(string $dsn = 'tcp://127.0.0.1:9000', string $username = 'default', string $password = '', string $database = 'default', array $options = [])
     {
         $context = isset($options['tcp_nodelay']) && !empty($options['tcp_nodelay']) ? stream_context_create(
             ['socket' => ['tcp_nodelay' => true]]
@@ -84,12 +97,12 @@ class Client
         }
     }
 
-    private function addClientInfo()
+    private function addClientInfo(): void
     {
         $this->write->string(self::NAME)->number(self::VERSION_MAJOR, self::VERSION_MINOR, self::VERSION);
     }
 
-    private function hello($username, $password, $database)
+    private function hello(string $username, string $password, string $database): bool
     {
         $this->write->number(Protocol::CLIENT_HELLO);
         $this->addClientInfo();
@@ -101,23 +114,21 @@ class Client
     /**
      * @return bool
      */
-    public function ping()
+    public function ping(): bool
     {
         $this->write->number(Protocol::CLIENT_PING);
         $this->write->flush();
         return $this->receive();
     }
 
-    private $_server_info = [];
-    private $_row_data    = [];
-    private $_total_row   = 0;
-    private $fields       = [];
-
-
+    private array $_server_info = [];
+    private array $_row_data    = [];
+    private int $_total_row   = 0;
+    private array $fields       = [];
     /**
      * @return array|bool
      */
-    private function receive()
+    private function receive(): array|bool
     {
         $this->_row_data  = [];
         $this->_total_row = 0;
@@ -138,7 +149,12 @@ class Client
                     $this->readErr();
                     break;
                 case Protocol::SERVER_DATA:
-                    $n = $this->readData();
+                case Protocol::SERVER_PROFILEEVENTS:
+                case Protocol::SERVER_LOG:
+                    $n = $this->readData($code);
+                    if ($n === null) {
+                        break;
+                    }
                     if ($n > 1) {
                         $code = $n;
                     }
@@ -148,17 +164,19 @@ class Client
                         'rows'       => $this->read->number(),
                         'bytes'      => $this->read->number(),
                         'total_rows' => $this->gtV(self::DBMS_MIN_V_TOTAL_ROWS_IN_PROGRESS) ? $this->read->number() : 0,
+                        'written_rows' => $this->gtV(self::DBMS_MIN_REVISION_WITH_CLIENT_WRITE_INFO)  ? $this->read->number() : 0,
+                        'written_bytes' => $this->gtV(self::DBMS_MIN_REVISION_WITH_CLIENT_WRITE_INFO)  ? $this->read->number() : 0,
                     ];
                     break;
                 case Protocol::SERVER_END_OF_STREAM:
                     return $this->_row_data;
-//                    return [
-//                        'total_row'     => $this->_total_row,
-//                        'data'          => $this->_row_data,
-//                        'field'         => $this->fields,
-//                        'progress_info' => $_progress_info,
-//                        'profile_info'  => $_profile_info,
-//                    ];
+                    //                    return [
+                    //                        'total_row'     => $this->_total_row,
+                    //                        'data'          => $this->_row_data,
+                    //                        'field'         => $this->fields,
+                    //                        'progress_info' => $_progress_info,
+                    //                        'profile_info'  => $_profile_info,
+                    //                    ];
                 case Protocol::SERVER_PROFILE_INFO:
                     $_profile_info = [
                         'rows'                         => $this->read->number(),
@@ -175,6 +193,10 @@ class Client
                     break;
                 case Protocol::SERVER_PONG:
                     return true;
+                case Protocol::SERVER_TABLECOLUMNS:
+                    $this->read->number();
+                    $this->read->number();
+                    break;
                 default:
                     throw new CkException('undefined code ' . $code, CkException::CODE_UNDEFINED);
             }
@@ -182,7 +204,7 @@ class Client
         } while (true);
     }
 
-    private function gtV($v)
+    private function gtV(int $v): bool
     {
         return $this->_server_info['version'] >= $v;
     }
@@ -191,59 +213,81 @@ class Client
     /**
      * @return array
      */
-    public function getServerInfo()
+    public function getServerInfo(): array
     {
         return $this->_server_info;
     }
 
 
-    private function readData()
+    private function readData(int $pCode): null|int
     {
         if (count($this->fields) === 0) {
             $this->readHeader();
         }
-        list($code, $row_count) = $this->readHeader();
+        list($code, $row_count, $col_count) = $this->readHeader();
         if ($row_count === 0) {
             return $code;
         }
-        foreach ($this->fields as $t) {
-            $f   = $this->read->string();
-            $t   = $this->read->string();
+
+        if ($pCode === Protocol::SERVER_DATA) {
+            foreach ($this->fields as $t) {
+                $f   = $this->read->string();
+                $t   = $this->read->string();
+                $col = $this->types->unpack($t, $row_count);
+                $i   = 0;
+                foreach ($col as $el) {
+                    $this->_row_data[$i + $this->_total_row][$f] = $el;
+                    $i++;
+                }
+            }
+            $this->_total_row += $row_count;
+            return 1;
+        }
+        for ($i = 0; $i < $col_count; $i++) {
+            $f = $this->read->string();
+            $t = $this->read->string();
             $col = $this->types->unpack($t, $row_count);
-            $i   = 0;
-            foreach ($col as $el) {
-                $this->_row_data[$i + $this->_total_row][$f] = $el;
-                $i++;
+            if ($this->fields[$f] ?? false) {
+                $j = 0;
+                foreach ($col as $el) {
+                    $this->_row_data[$j + $this->_total_row][$f] = $el;
+                    $j++;
+                }
+                $this->_total_row += $row_count;
             }
         }
-        $this->_total_row += $row_count;
-        return 1;
+        return null;
     }
 
-    private function readHeader()
+    private function readHeader(): array
     {
         $n = $this->read->number();
         if ($n > 1) {
-            return [$n, 0];
+            return [$n, 0, 0];
         }
-        $info = [
-            'num1'         => $this->read->number(),
-            'is_overflows' => $this->read->number(),
-            'num2'         => $this->read->number(),
-            'bucket_num'   => $this->read->int(),
-            'num3'         => $this->read->number(),
-            'col_count'    => $this->read->number(),
-            'row_count'    => $this->read->number(),
-        ];
+
+        $info = [];
+        if ($this->gtV(self::DBMS_MIN_V_BLOCK_INFO)) {
+            $info = [
+                'num1'         => $this->read->number(),
+                'is_overflows' => $this->read->number(),
+                'num2'         => $this->read->number(),
+                'bucket_num'   => $this->read->int(),
+                'num3'         => $this->read->number()
+            ];
+        }
+        $info['col_count']    = $this->read->number();
+        $info['row_count']    = $this->read->number();
+
         if (count($this->fields) === 0) {
             for ($i = 0; $i < $info['col_count']; $i++) {
                 $this->fields[$this->read->string()] = $this->read->string();
             }
         }
-        return [0, $info['row_count']];
+        return [0, $info['row_count'], $info['col_count']];
     }
 
-    private function setServerInfo()
+    private function setServerInfo(): void
     {
         $this->_server_info              = [
             'name'          => $this->read->string(),
@@ -252,38 +296,59 @@ class Client
             'version'       => $this->read->number(),
         ];
         $this->_server_info['time_zone'] = $this->gtV(self::DBMS_MIN_V_SERVER_TIMEZONE) ? $this->read->string() : '';
+        $this->_server_info['display_name'] = $this->gtV(self::DBMS_MIN_REVISION_WITH_SERVER_DISPLAY_NAME) ? $this->read->string() : '';
+        $this->_server_info['version_patch'] = $this->gtV(self::DBMS_MIN_REVISION_WITH_VERSION_PATCH) ? $this->read->number() : '';
     }
 
 
-    private function sendQuery($sql)
+    private function sendQuery(string $sql, array $settings = []): void
     {
         $this->write->number(Protocol::CLIENT_QUERY, 0);
 
         if ($this->gtV(self::DBMS_MIN_V_CLIENT_INFO)) {
 
-            // query kind
-            $this->write->number(1)
-                // name, id, ip
-                ->string('', '', '[::ffff:127.0.0.1]:0')
-                // iface type tcp, os ser, hostname
-                ->number(1)->string('', '');
+            // query kind, user, id, ip
+            $this->write->number(1)->string('', '', '[::ffff:127.0.0.1]:0');
+            if ($this->gtV(self::DBMS_MIN_REVISION_WITH_INITIAL_QUERY_START_TIME)) {
+                $this->write->int64(0);
+            }
+            // iface type tcp, os ser, hostname
+            $this->write->number(1)->string('', '');
 
             $this->addClientInfo();
 
             if ($this->gtV(self::DBMS_MIN_V_QUOTA_KEY_IN_CLIENT_INFO)) {
                 $this->write->string('');
             }
-
+            if ($this->gtV(self::DBMS_MIN_REVISION_WITH_DISTRIBUTED_DEPTH)) {
+                $this->write->number(0);
+            }
+            if ($this->gtV(self::DBMS_MIN_REVISION_WITH_VERSION_PATCH)) {
+                $this->write->number(0);
+            }
+            if ($this->gtV(self::DBMS_MIN_REVISION_WITH_OPENTELEMETRY)) {
+                $this->write->number(0);
+            }
         }
 
-        $this->write->number(0, Protocol::STAGES_COMPLETE, Protocol::COMPRESSION_DISABLE)->string($sql);
+        if ($this->gtV(self::DBMS_MIN_REVISION_WITH_SETTINGS_SERIALIZED_AS_STRINGS)) {
+            foreach ($settings as $name => $value) {
+                $this->write->string($name)->number(1)->string($value);
+            }
+        }
 
+        $this->write->number(0);
+
+        if ($this->gtV(self::DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET)) {
+            $this->write->number(0);
+        }
+        $this->write->number(Protocol::STAGES_COMPLETE, Protocol::COMPRESSION_DISABLE)->string($sql);
     }
 
     /**
      * @param string $sql
      */
-    public function query($sql)
+    public function query(string $sql): bool|array
     {
         $this->fields = [];
         $this->sendQuery($sql);
@@ -296,7 +361,7 @@ class Client
      * @return array|bool
      * @throws CkException
      */
-    public function insert($table, $data)
+    public function insert(string $table, array $data): bool|array
     {
         $this->writeStart($table, array_keys($data[0]));
         $this->writeBlock($data);
@@ -308,7 +373,7 @@ class Client
      * @param string[] $fields
      * @throws CkException
      */
-    public function writeStart($table, $fields)
+    public function writeStart(string $table, array $fields): void
     {
         $this->fields = [];
         $table = trim($table);
@@ -323,8 +388,6 @@ class Client
                 continue;
             } else if ($code == Protocol::SERVER_EXCEPTION) {
                 $this->readErr();
-            } else {
-                throw new CkException('insert err code:' . $code, CkException::CODE_INSERT_ERR);
             }
         }
     }
@@ -333,7 +396,7 @@ class Client
      * @param string[][] $data
      * @throws CkException
      */
-    public function writeBlock($data)
+    public function writeBlock(array $data): void
     {
         if (count($this->fields) === 0) {
             throw new CkException('Please execute first writeStart', CkException::CODE_TODO_WRITE_START);
@@ -358,7 +421,6 @@ class Client
             $this->write->flush();
         }
         $this->write->flush();
-
     }
 
     /**
@@ -366,7 +428,7 @@ class Client
      * @return array|bool
      * @throws CkException
      */
-    public function writeEnd($get_ret = true)
+    public function writeEnd(bool $get_ret = true): bool|array
     {
         $this->writeBlockHead();
         $this->write->number(0);
@@ -375,9 +437,10 @@ class Client
         if ($get_ret === true) {
             return $this->receive();
         }
+        return true;
     }
 
-    private function writeBlockHead()
+    private function writeBlockHead(): void
     {
         $this->write->number(Protocol::CLIENT_DATA);
         if ($this->gtV(self::DBMS_MIN_V_TEMPORARY_TABLES)) {
@@ -390,12 +453,11 @@ class Client
         }
     }
 
-    private function readErr()
+    private function readErr(): void
     {
         $c   = $this->read->int();
         $n   = $this->read->string();
         $msg = $this->read->string();
         throw new CkException(substr($msg, strlen($n) + 1), $c);
     }
-
 }

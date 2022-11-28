@@ -4,16 +4,10 @@ namespace OneCk;
 
 class Write
 {
-    /**
-     * @var resource
-     */
-    private $conn;
+    private string $buf = '';
 
-    private $buf = '';
-
-    public function __construct($conn)
+    public function __construct(private $conn)
     {
-        $this->conn = $conn;
     }
 
 
@@ -21,7 +15,7 @@ class Write
      * @param int ...$nr
      * @return $this
      */
-    public function number(...$nr)
+    public function number(...$nr): self
     {
         $r = [];
         foreach ($nr as $n) {
@@ -43,9 +37,15 @@ class Write
      * @param int $n
      * @return $this
      */
-    public function int($n)
+    public function int(int $n): self
     {
         $this->buf .= pack('l', $n);
+        return $this;
+    }
+
+    public function int64(int $i): self
+    {
+        $this->buf .= pack("q", $i);
         return $this;
     }
 
@@ -53,7 +53,7 @@ class Write
      * @param int ...$str
      * @return $this
      */
-    public function string(...$str)
+    public function string(...$str): self
     {
         foreach ($str as $s) {
             $this->number(strlen($s));
@@ -67,14 +67,14 @@ class Write
      * @param $str
      * @return $this
      */
-    public function addBuf($str)
+    public function addBuf(string $str): self
     {
         $this->buf .= $str;
         return $this;
     }
 
 
-    public function flush()
+    public function flush(): bool
     {
         if ($this->buf === '') {
             return true;
@@ -86,5 +86,4 @@ class Write
         $this->buf = '';
         return true;
     }
-
 }

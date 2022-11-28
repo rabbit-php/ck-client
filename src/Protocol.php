@@ -29,10 +29,16 @@ class Protocol
     const SERVER_PROFILE_INFO  = 6; // 分析信息
     const SERVER_TOTALS        = 7; // 总数
     const SERVER_EXTREMES      = 8; //
+    const SERVER_TABLESSTATUSRESPONSE = 9;    /// Response to TableStatus.
+    const SERVER_LOG                  = 10;   /// Query execution log.
+    const SERVER_TABLECOLUMNS         = 11;   /// Columns' description for default values calculation
+    const SERVER_PARTUUIDS            = 12;   /// List of unique parts ids.
+    const SERVER_READTASKREQUEST      = 13;   /// String (UUID) describes a request for which next task is needed
+    /// This is such an inverted logic, where server sends requests
+    /// And client returns back response
+    const SERVER_PROFILEEVENTS        = 14;   /// Packet with profile events from server.
 
-    CONST COMPRESSION_DISABLE = 0;
-    CONST COMPRESSION_ENABLE  = 1;
-    CONST STAGES_COMPLETE     = 2;
-
+    const COMPRESSION_DISABLE = 0;
+    const COMPRESSION_ENABLE  = 1;
+    const STAGES_COMPLETE     = 2;
 }
-

@@ -4,17 +4,12 @@ namespace OneCk;
 
 class Read
 {
-    /**
-     * @var resource
-     */
-    private $conn;
 
-    public function __construct($conn)
+    public function __construct(private $conn)
     {
-        $this->conn = $conn;
     }
 
-    public function getChar($n = 1)
+    public function getChar(int $n = 1): string
     {
         $buffer = fread($this->conn, $n);
         if ($buffer === false || !isset($buffer[0])) {
@@ -30,7 +25,7 @@ class Read
      * @return int
      * @throws CkException
      */
-    public function number()
+    public function number(): int
     {
         $r = 0;
         $b = 0;
@@ -44,24 +39,11 @@ class Read
         }
     }
 
-    public function echo_str($n = 50)
-    {
-        $s = $this->getChar($n);
-        echo "--- start ---\n";
-        echo 'total len ' . strlen($s) . PHP_EOL;
-        echo $s . PHP_EOL;
-        for ($i = 0; $i < strlen($s); $i++) {
-            echo $i . '=> ' . $s[$i] . '=>' . ord($s[$i]) . PHP_EOL;
-        }
-        echo PHP_EOL;
-        echo "--- end ---\n";
-    }
-
     /**
      * @return int
      * @throws CkException
      */
-    public function int()
+    public function int(): int
     {
         return unpack('l', $this->getChar(4))[1];
     }
@@ -70,7 +52,7 @@ class Read
      * @return string
      * @throws CkException
      */
-    public function string()
+    public function string(): string
     {
         $n = $this->number();
         return $n === 0 ? '' : $this->getChar($n);

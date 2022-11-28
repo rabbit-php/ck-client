@@ -4,23 +4,13 @@ namespace OneCk;
 
 class Types
 {
-    /**
-     * @var Write
-     */
-    protected $write;
+    protected bool $is_null      = false;
+    protected array $is_null_data = [];
 
-    /**
-     * @var Read
-     */
-    protected $read;
+    protected array $col_data = [];
 
-    protected $is_null      = false;
-    protected $is_null_data = [];
-
-    protected $col_data = [];
-
-    protected $arr_dp   = [];
-    protected $arr_type = '';
+    protected array $arr_dp   = [];
+    protected string $arr_type = '';
 
     const BASE_TYPE = [
         'int8'    => ['c', 1],
@@ -30,7 +20,7 @@ class Types
         'int32'   => ['l', 4],
         'uint32'  => ['L', 4],
         'int64'   => ['q', 8],
-//        'uint64'  => ['Q', 8],
+        // 'uint64'  => ['Q', 8],
         'float32' => ['f', 4],
         'float64' => ['d', 8]
     ];
@@ -47,19 +37,17 @@ class Types
         'nothing'   => 'int8'
     ];
 
-    public function __construct($write, $read)
+    public function __construct(protected Write $write, protected Read $read)
     {
-        $this->write = $write;
-        $this->read  = $read;
     }
 
 
-    public static function encodeIpv4($ip)
+    public static function encodeIpv4(string $ip): int
     {
         return ip2long($ip);
     }
 
-    public static function encodeIpv6($ip)
+    public static function encodeIpv6(string $ip): string
     {
         $ar = explode(':', $ip);
         if (count($ar) < 8 || strpos($ip, '::')) {
@@ -76,22 +64,22 @@ class Types
         return hex2bin(implode($ar));
     }
 
-    public static function encodeFixedString($str, $n)
+    public static function encodeFixedString(string $str, int $n): string
     {
         return str_pad($str, $n, chr(0));
     }
 
-    public static function encodeDate($date)
+    public static function encodeDate(string $date): float
     {
         return ceil(strtotime($date) / 86400);
     }
 
-    public static function encodeDatetime($datetime)
+    public static function encodeDatetime(string $datetime): int
     {
         return strtotime($datetime);
     }
 
-    public static function encodeDatetime64($time, $n = 3)
+    public static function encodeDatetime64(string $time, int $n = 3): int
     {
         $ar = explode('.', $time);
         $l  = isset($ar[1]) ? strlen($ar[1]) : 0;
@@ -99,7 +87,7 @@ class Types
         return $n * 1;
     }
 
-    public static function encodeUuid($data)
+    public static function encodeUuid(string $data): string
     {
         $s  = str_replace('-', '', $data);
         $r1 = substr($s, 0, 8);
@@ -113,7 +101,7 @@ class Types
      * @param string $n
      * @return string
      */
-    public static function encodeInt128($n)
+    public static function encodeInt128(string|int $n): string
     {
         if (!is_string($n)) {
             $n = "{$n}";
@@ -140,14 +128,14 @@ class Types
         return $r;
     }
 
-    protected function encodeUint64($str)
+    protected function encodeUint64(string|int $str): string
     {
         $str = "{$str}";
         return pack('L2', intval(bcmod($str, '4294967296')), intval(bcdiv($str, '4294967296')));
     }
 
 
-    protected function decodeUint64()
+    protected function decodeUint64(): string
     {
         $str = $this->read->getChar(8);
         $r   = unpack('L*', $str);
@@ -155,7 +143,7 @@ class Types
     }
 
 
-    protected function decodeUuid()
+    protected function decodeUuid(): string
     {
         $s = bin2hex($this->read->getChar(8));
         $r = '';
@@ -177,7 +165,7 @@ class Types
     /**
      * @return string
      */
-    protected function decodeInt128()
+    protected function decodeInt128(): string
     {
         $str  = $this->read->getChar(16);
         $is_n = false;
@@ -200,7 +188,7 @@ class Types
         return $is_n ? '-' . $r : $r;
     }
 
-    protected function decodeIpv6($data)
+    protected function decodeIpv6(string $data): string
     {
         $s = bin2hex($data);
         $r = [];
@@ -221,40 +209,49 @@ class Types
     }
 
 
-    public static function isDecimal($str)
+    public static function isDecimal(string $str): bool
     {
         return strpos($str, 'decimal(') === 0;
     }
 
-    public static function isDatetime64($str)
+    public static function isDatetime64(string $str): bool
     {
         return strpos($str, 'datetime64(') === 0;
     }
 
 
-    public static function isArray($str)
+    public static function isArray(string $str): bool
     {
         return strpos($str, 'array(') === 0;
     }
 
 
-    public static function isNullable($str)
+    public static function isNullable(string $str): bool
     {
         return strpos($str, 'nullable(') === 0;
     }
 
-    public static function isFixedString($str)
+    public static function isFixedString(string $str): bool
     {
         return strpos($str, 'fixedstring(') === 0;
     }
 
-    public static function isSimpleAggregateFunction($str)
+    public static function isSimpleAggregateFunction(string $str): bool
     {
         return strpos($str, 'simpleaggregatefunction(') === 0;
     }
 
+    public static function isEnum(string $str): bool
+    {
+        return strpos($str, 'enum') !== false;
+    }
 
-    protected function alias(&$tp)
+    public static function isLowcardinality(string $str): bool
+    {
+        return strpos($str, 'lowcardinality') !== false;
+    }
+
+    protected function alias(string &$tp): string
     {
         $type = $tp;
         if (isset(self::BASE_TYPE[$type]) || $type === 'string' || self::isFixedString($type)) {
@@ -286,6 +283,17 @@ class Types
             $type = $tp;
             return $this->alias($type);
         }
+        if (self::isEnum($type)) {
+            $pos = strpos($type, '(');
+            $tp = substr($type, 0, $pos === false ? null : $pos);
+            $type = $tp;
+            return $this->alias($type);
+        }
+        if (self::isLowcardinality($type)) {
+            $tp = substr($type, strpos($type, '(') + 1, strpos($type, ')') - strpos($type, '(') - 1);
+            $type = $tp;
+            return $this->alias($type);
+        }
         $is_arr = false;
         while (self::isArray($type)) {
             $this->arr_dp[] = 'array';
@@ -300,7 +308,7 @@ class Types
     }
 
 
-    protected function getArrData($row_count, $real_type)
+    protected function getArrData(int $row_count, string $real_type): array
     {
         $deep  = count($this->arr_dp);
         $data  = array_fill(0, $row_count, []);
@@ -353,7 +361,7 @@ class Types
         return isset($els[0]) ? $arr : [];
     }
 
-    protected function setArrData($in_da, $type, $real_type)
+    protected function setArrData(mixed $in_da, string $type, string $real_type): void
     {
         $data   = [];
         $index  = [$in_da];
@@ -393,11 +401,10 @@ class Types
         $this->encode($data, $type, $real_type);
 
         $this->arr_dp = [];
-
     }
 
 
-    protected function getNull($row_count)
+    protected function getNull(int $row_count): void
     {
         $this->is_null_data = [];
         if ($this->is_null) {
@@ -413,7 +420,7 @@ class Types
     /**
      * @param $data
      */
-    protected function setNull(&$data)
+    protected function setNull(array &$data): void
     {
         if ($this->is_null) {
             foreach ($data as $i => &$v) {
@@ -435,7 +442,7 @@ class Types
      * @param $type
      * @return mixed|null
      */
-    protected function format(&$data, $type)
+    protected function format(array &$data, string $type): int
     {
         if (isset(self::BASE_TYPE[$type]) || $type === 'string') {
             return 1;
@@ -484,10 +491,11 @@ class Types
                 }
             }
         }
+        return 1;
     }
 
 
-    protected function unFormat($type)
+    protected function unFormat(string $type): int
     {
         if (isset(self::BASE_TYPE[$type]) || $type === 'string' || $type === 'uuid' || self::isFixedString($type) || $type === 'nothing') {
             return 1;
@@ -538,7 +546,7 @@ class Types
                 $el = $fn($el);
             }
         }
-
+        return 1;
     }
 
 
@@ -547,7 +555,7 @@ class Types
      * @return mixed|string
      * @throws CkException
      */
-    protected function decode($type, $row_count)
+    protected function decode(string $type, int $row_count): int
     {
         if ($row_count === 0) {
             return 1;
@@ -555,8 +563,10 @@ class Types
 
         if (isset(self::BASE_TYPE[$type])) {
             $this->col_data = array_values(
-                unpack(self::BASE_TYPE[$type][0] . '*',
-                    $this->read->getChar(self::BASE_TYPE[$type][1] * $row_count))
+                unpack(
+                    self::BASE_TYPE[$type][0] . '*',
+                    $this->read->getChar(self::BASE_TYPE[$type][1] * $row_count)
+                )
             );
             return 1;
         }
@@ -589,7 +599,7 @@ class Types
         for ($i = 0; $i < $row_count; $i++) {
             $this->col_data[] = $fn();
         }
-
+        return 1;
     }
 
     /**
@@ -598,7 +608,7 @@ class Types
      * @param string $real_type
      * @throws CkException
      */
-    protected function encode($data, $type, $real_type)
+    protected function encode(array $data, string $type, string $real_type): int
     {
         if (isset(self::BASE_TYPE[$real_type])) {
             $this->write->addBuf(pack(self::BASE_TYPE[$real_type][0] . '*', ...$data));
@@ -632,10 +642,11 @@ class Types
         foreach ($data as $el) {
             $fn($el);
         }
+        return 1;
     }
 
 
-    public function unpack($type, $row_count)
+    public function unpack(string $type, int $row_count): array
     {
         $type          = strtolower($type);
         $this->is_null = false;
@@ -653,7 +664,7 @@ class Types
         }
     }
 
-    public function pack($data, $type)
+    public function pack(array $data, string $type): void
     {
         $type          = strtolower($type);
         $this->is_null = false;
@@ -666,5 +677,4 @@ class Types
             $this->encode($data, $type, $real_type);
         }
     }
-
 }

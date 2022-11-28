@@ -1,7 +1,7 @@
 {
-  "name": "lizhichao/one-ck",
+  "name": "rabbit/ck-client",
   "type": "library",
-  "description": "clickhouse tcp client",
+  "description": "clickhouse tcp client fork from lizhichao/one-ck",
   "keywords": [
     "php",
     "tcp",
@@ -13,10 +13,14 @@
     {
       "name": "tanszhe",
       "email": "1018595261@qq.com"
+    },
+    {
+      "name": "albert",
+      "email": "63851587@qq.com"
     }
   ],
   "require": {
-    "php": ">=7.2",
+    "php": ">=8.0",
     "ext-json": "*"
   },
   "autoload": {
