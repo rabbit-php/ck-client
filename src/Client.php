@@ -219,7 +219,7 @@ class Client
     }
 
 
-    private function readData(int $pCode): null|int
+    private function readData(int $pCode): int|null
     {
         if (count($this->fields) === 0) {
             $this->readHeader();
@@ -241,19 +241,19 @@ class Client
                 }
             }
             $this->_total_row += $row_count;
-            return 1;
-        }
-        for ($i = 0; $i < $col_count; $i++) {
-            $f = $this->read->string();
-            $t = $this->read->string();
-            $col = $this->types->unpack($t, $row_count);
-            if ($this->fields[$f] ?? false) {
-                $j = 0;
-                foreach ($col as $el) {
-                    $this->_row_data[$j + $this->_total_row][$f] = $el;
-                    $j++;
+        } else {
+            for ($i = 0; $i < $col_count; $i++) {
+                $f = $this->read->string();
+                $t = $this->read->string();
+                $col = $this->types->unpack($t, $row_count);
+                if (($this->fields[$f] ?? false) && count($this->_row_data) === 0) {
+                    $j = 0;
+                    foreach ($col as $el) {
+                        $this->_row_data[$j + $this->_total_row][$f] = $el;
+                        $j++;
+                    }
+                    $this->_total_row += $row_count;
                 }
-                $this->_total_row += $row_count;
             }
         }
         return null;
