@@ -2,7 +2,9 @@
 
 namespace OneCk;
 
-class Client
+use Rabbit\Base\Contract\InitInterface;
+
+class Client implements InitInterface
 {
     /**
      * @var resource
@@ -49,28 +51,29 @@ class Client
     const DBMS_MIN_REVISION_WITH_INCREMENTAL_PROFILE_EVENTS = 54451;
     const VERSION = self::DBMS_MIN_REVISION_WITH_INCREMENTAL_PROFILE_EVENTS;
 
-    private array $conf = [];
-
-
-    public function __construct(string $dsn = 'tcp://127.0.0.1:9000', string $username = 'default', string $password = '', string $database = 'default', array $options = [])
+    public function __construct(public readonly string $dsn = 'tcp://127.0.0.1:9000', public readonly string $username = 'default', public readonly string $password = '', public readonly string $database = 'default', public readonly array $options = [])
     {
-        $context = isset($options['tcp_nodelay']) && !empty($options['tcp_nodelay']) ? stream_context_create(
+    }
+
+    public function init(): void
+    {
+        $context = isset($this->options['tcp_nodelay']) && !empty($this->options['tcp_nodelay']) ? stream_context_create(
             ['socket' => ['tcp_nodelay' => true]]
         ) : null;
 
-        $flags = isset($options['persistent']) && !empty($options['persistent']) ?
+        $flags = isset($this->options['persistent']) && !empty($this->options['persistent']) ?
             STREAM_CLIENT_CONNECT | STREAM_CLIENT_PERSISTENT
             : STREAM_CLIENT_CONNECT;
 
         $this->conn = $context ? stream_socket_client(
-            $dsn,
+            $this->dsn,
             $code,
             $msg,
             $options['connect_timeout'] ?? 3,
             $flags,
             $context
         ) : stream_socket_client(
-            $dsn,
+            $this->dsn,
             $code,
             $msg,
             $options['connect_timeout'] ?? 3,
@@ -85,8 +88,7 @@ class Client
         $this->write = new Write($this->conn);
         $this->read  = new Read($this->conn);
         $this->types = new Types($this->write, $this->read);
-        $this->conf  = [$username, $password, $database];
-        $this->hello(...$this->conf);
+        $this->hello();
     }
 
     public function __destruct()
@@ -102,11 +104,11 @@ class Client
         $this->write->string(self::NAME)->number(self::VERSION_MAJOR, self::VERSION_MINOR, self::VERSION);
     }
 
-    private function hello(string $username, string $password, string $database): bool
+    private function hello(): bool
     {
         $this->write->number(Protocol::CLIENT_HELLO);
         $this->addClientInfo();
-        $this->write->string($database, $username, $password);
+        $this->write->string($this->database, $this->username, $this->password);
         $this->write->flush();
         return $this->receive();
     }
